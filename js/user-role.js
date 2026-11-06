@@ -1,12 +1,7 @@
-import { db } from "./firebase-config.js";
-import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { auth } from "./firebase-config.js";
 
-export async function isAdmin(user) {
-  if (!user) return false;
-  try {
-    const snap = await getDoc(doc(db, "users", user.uid));
-    return snap.exists() && snap.data().role === "admin";
-  } catch {
-    return false;
-  }
+const SUPER_ADMIN_UID = "mkHQpDkqtJfIz6ZJ3AJlUiBvCFF2";
+
+export function isAdmin(user) {
+  return user && user.uid === SUPER_ADMIN_UID;
 }
