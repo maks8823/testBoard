@@ -29,11 +29,20 @@
     let currentUserIsAdmin = false;
 
     function linkify(text) {
-      if (!text) return "";
-      const safe = text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      return safe.replace(/(https?:\/\/[^\s]+)/g,
-        url => `<a href="${url}" target="_blank" rel="noopener" style="color:#8ec8f8;">${url}</a>`);
-    }
+	  if (!text) return "";
+	  const safe = text
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+
+	  const withLinks = safe.replace(
+		/(https?:\/\/[^\s]+)/g,
+		url => `<a href="${url}" target="_blank" rel="noopener" style="color:#8ec8f8;">${url}</a>`
+	  );
+
+	  // Переводим нажатия Enter в переносы строк <br>
+	  return withLinks.replace(/\n/g, "<br>");
+	}
 
     onAuthStateChanged(auth, async (user) => {
       const navAuth = document.getElementById("nav-auth");
@@ -75,9 +84,9 @@
 
         list.innerHTML = arr.map(d => `
           <article class="card">
-            <h3>${d.title || "Без названия"}</h3>
-            <p style="margin:8px 0; white-space:pre-wrap;">${linkify(d.text)}</p>
-            <small style="color:#7eb8e0;">${new Date(d.createdAt || 0).toLocaleString()}</small>
+			<h3>${d.title || "Без названия"}</h3>
+			<p style="margin:8px 0; line-height:1.5;">${linkify(d.text)}</p>
+			<small style="color:#7eb8e0;">${new Date(d.createdAt || 0).toLocaleString()}</small>
             ${currentUserIsAdmin
               ? `<div style="margin-top:10px;">
                    <button class="btn-danger" data-del="${d.id}">Удалить запись</button>

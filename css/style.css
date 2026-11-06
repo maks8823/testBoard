@@ -67,6 +67,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   border-radius: 8px;
   padding: 1.5rem;
   margin: 1.5rem 0;
+  overflow-wrap: anywhere; /* Переносит длинные слова и ссылки */
+  word-break: break-word;
 }
 
 .msg { margin-top: 10px; color: #8ec8f8; }
