@@ -31,12 +31,10 @@ document.getElementById("btn-register").onclick = async () => {
       createdAt: Date.now()
     });
 
-    // Отправляем письмо с подтверждением
-    await sendEmailVerification(cred.user, {
-      url: window.location.origin + "/login.html"
-    });
+	const basePath = window.location.pathname.replace(/\/[^/]*$/, "/");
+	const returnUrl = window.location.origin + basePath + "login.html";
 
-    // Разлогиниваем — пусть сначала подтвердит почту
+	await sendEmailVerification(cred.user, { url: returnUrl });
     await signOut(auth);
 
     msg.textContent = "✅ Проверьте почту. Кликните по ссылке для подтверждения, потом войдите.";
