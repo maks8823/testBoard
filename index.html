@@ -2,55 +2,39 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <link rel="icon" type="image/png" href="/images/hash.svg">
   <link rel="stylesheet" href="css/style.css">
-  
   <title>Board</title>
-  
 </head>
 <body>
   <nav>
     <a href="index.html">Главная</a>
+    <a href="admin.html" id="nav-admin" style="display:none;">Админка</a>
     <a href="login.html" id="nav-auth">Войти</a>
   </nav>
 
   <div class="container">
     <h1>idk</h1>
-    
-    <hr style="margin: 2rem 0; border: 0; border-top: 1px solid rgba(255,255,255,0.1);">
-    
-    <h2>Новости и события</h2>
-    <div id="news-list">Загрузка новостей...</div>
+    <h2>Новости</h2>
+    <div id="news-list">Загрузка...</div>
   </div>
 
   <script type="module">
     import { auth, db } from "./js/firebase-config.js";
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
     import { collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { isAdmin } from "./js/user-role.js";
 
-
-    
     function linkify(text) {
       if (!text) return "";
-      
-      
-      let safeText = text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-
-      // Поиск всех URL, начинающихся с http:// или https://
-      const urlRegex = /(https?:\/\/[^\s]+)/g;
-
-      return safeText.replace(urlRegex, (url) => {
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #8ec8f8; text-decoration: underline;">${url}</a>`;
-      });
+      const safe = text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      return safe.replace(/(https?:\/\/[^\s]+)/g,
+        url => `<a href="${url}" target="_blank" rel="noopener" style="color:#8ec8f8;">${url}</a>`);
     }
 
-    onAuthStateChanged(auth, (user) => {
+    onAuthStateChanged(auth, async (user) => {
       const navAuth = document.getElementById("nav-auth");
       const navAdmin = document.getElementById("nav-admin");
-      
+
       if (user) {
         navAuth.textContent = `Выйти (${user.email})`;
         navAuth.href = "#";
@@ -58,10 +42,7 @@
           e.preventDefault();
           signOut(auth).then(() => location.reload());
         };
-        
-        if (isAdmin(user.email) && navAdmin) {
-          navAdmin.style.display = "inline-block";
-        }
+        if (await isAdmin(user)) navAdmin.style.display = "inline-block";
       }
     });
 
@@ -69,47 +50,23 @@
       const list = document.getElementById("news-list");
       try {
         const snap = await getDocs(collection(db, "news"));
-        list.innerHTML = "";
+        if (snap.empty) { list.innerHTML = "<p>Новостей пока нет.</p>"; return; }
 
-        if (snap.empty) {
-          list.innerHTML = "<p>Новостей пока нет.</p>";
-          return;
-        }
+        const arr = [];
+        snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+        arr.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
 
-        const newsList = [];
-        snap.forEach((doc) => newsList.push({ id: doc.id, ...doc.data() }));
-
-        // Сортировка: новые сверху
-        newsList.sort((a, b) => {
-          const ta = a.createdAt || 0;
-          const tb = b.createdAt || 0;
-          if (tb !== ta) return tb - ta;
-          return String(b.date || "").localeCompare(String(a.date || ""), "ru");
-        });
-
-        newsList.forEach((d) => {
-          const imgHtml = d.imageUrl 
-            ? `<img src="${d.imageUrl}" style="width:100%; height:auto; display:block; border-radius:6px; margin-bottom:12px;" alt="Фото новости">` 
-            : "";
-
-          // Применяем функцию linkify к тексту новости
-          const formattedText = linkify(d.text);
-
-          list.innerHTML += `
-            <article class="card">
-              ${imgHtml}
-              <h3>${d.title || "Без названия"}</h3>
-              <p style="margin: 8px 0; white-space: pre-wrap;">${formattedText}</p>
-              <small style="color: #7eb8e0;">Опубликовано: ${d.date || "—"}</small>
-            </article>
-          `;
-        });
+        list.innerHTML = arr.map(d => `
+          <article class="card">
+            <h3>${d.title || "Без названия"}</h3>
+            <p style="margin:8px 0; white-space:pre-wrap;">${linkify(d.text)}</p>
+            <small style="color:#7eb8e0;">${new Date(d.createdAt||0).toLocaleString()}</small>
+          </article>
+        `).join("");
       } catch (e) {
-        console.error(e);
-        list.innerHTML = `<p style="color: #ff6b6b;">Ошибка загрузки новостей: ${e.message}</p>`;
+        list.innerHTML = `<p class="error">Ошибка: ${e.message}</p>`;
       }
     }
-
     loadNews();
   </script>
 </body>

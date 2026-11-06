@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="css/style.css">
+  <title>Админка</title>
+</head>
+<body>
+  <nav>
+    <a href="index.html">Главная</a>
+    <a href="admin.html">Админка</a>
+  </nav>
+
+  <div class="container">
+    <h1>Админка</h1>
+    <div id="access-check">Проверка доступа...</div>
+
+    <div id="admin-content" style="display:none;">
+      <div class="card">
+        <h2>Создать новость</h2>
+        <input id="news-title" placeholder="Заголовок">
+        <textarea id="news-text" placeholder="Текст"></textarea>
+        <button id="btn-create-news">Опубликовать</button>
+        <p id="news-msg" class="msg"></p>
+      </div>
+
+      <div class="card">
+        <h2>Пользователи</h2>
+        <div id="users-list">Загрузка...</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { auth, db } from "./js/firebase-config.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import {
+      collection, getDocs, addDoc, doc, updateDoc
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { isAdmin } from "./js/user-role.js";
+
+    onAuthStateChanged(auth, async (user) => {
+      const check = document.getElementById("access-check");
+      const content = document.getElementById("admin-content");
+
+      if (!user) {
+        check.innerHTML = `<p class="error">Войдите в аккаунт. <a href="login.html">Войти</a></p>`;
+        return;
+      }
+      if (!(await isAdmin(user))) {
+        check.innerHTML = `<p class="error">Нет доступа. Вы не админ.</p>`;
+        return;
+      }
+
+      check.style.display = "none";
+      content.style.display = "block";
+      loadUsers();
+    });
+
+    document.getElementById("btn-create-news").onclick = async () => {
+      const title = document.getElementById("news-title").value.trim();
+      const text  = document.getElementById("news-text").value.trim();
+      const msg   = document.getElementById("news-msg");
+      if (!title || !text) { msg.textContent = "Заполните всё"; return; }
+      try {
+        await addDoc(collection(db, "news"), {
+          title, text,
+          createdAt: Date.now(),
+          authorUid: auth.currentUser.uid
+        });
+        msg.textContent = "Опубликовано!";
+        document.getElementById("news-title").value = "";
+        document.getElementById("news-text").value = "";
+      } catch (e) {
+        msg.textContent = "Ошибка: " + e.message;
+      }
+    };
+
+    async function loadUsers() {
+      const list = document.getElementById("users-list");
+      const snap = await getDocs(collection(db, "users"));
+      const rows = [];
+      snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
+
+      list.innerHTML = rows.map(u => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.1);">
+          <span>${u.email} <small style="opacity:.6;">[${u.role}]</small></span>
+          <span>
+            ${u.role !== 'admin'
+              ? `<button data-uid="${u.id}" data-role="admin">Сделать админом</button>`
+              : `<button data-uid="${u.id}" data-role="user" class="btn-danger">Снять</button>`}
+          </span>
+        </div>
+      `).join("");
+
+      list.querySelectorAll("button").forEach(btn => {
+        btn.onclick = async () => {
+          try {
+            await updateDoc(doc(db, "users", btn.dataset.uid), { role: btn.dataset.role });
+            loadUsers();
+          } catch (e) {
+            alert("Ошибка: " + e.message);
+          }
+        };
+      });
+    }
+  </script>
+</body>
+</html>
