@@ -1,36 +1,81 @@
 import { auth, db } from "./firebase-config.js";
 import {
   createUserWithEmailAndPassword,
-  signInWithEmailAndPassword
+  signInWithEmailAndPassword,
+  sendEmailVerification,
+  signOut
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
-  doc, setDoc
+  doc, getDoc, setDoc
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-const email = document.getElementById("email");
-const pass  = document.getElementById("password");
-const msg   = document.getElementById("auth-msg");
+const msg = document.getElementById("auth-msg");
+const emailEl = document.getElementById("email");
+const passEl  = document.getElementById("password");
 
-document.getElementById("btn-login").onclick = async () => {
-  try {
-    await signInWithEmailAndPassword(auth, email.value, pass.value);
-    window.location.href = "index.html";
-  } catch (e) {
-    msg.textContent = e.message;
-  }
-};
-
+// ============ РЕГИСТРАЦИЯ ============
 document.getElementById("btn-register").onclick = async () => {
+  const email = emailEl.value.trim();
+  const pass  = passEl.value;
+
+  if (!email || !pass) { msg.textContent = "Заполни всё"; return; }
+  if (pass.length < 6) { msg.textContent = "Пароль минимум 6 символов"; return; }
+
   try {
-    const cred = await createUserWithEmailAndPassword(auth, email.value, pass.value);
-    // Создаём профиль с ролью 'user' (правила не дадут поставить admin)
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+
+    // Создаём профиль в Firestore (пока юзер залогинен, чтобы rules пропустили)
     await setDoc(doc(db, "users", cred.user.uid), {
       email: cred.user.email,
       role: "user",
       createdAt: Date.now()
     });
+
+    // Отправляем письмо с подтверждением
+    await sendEmailVerification(cred.user, {
+      url: window.location.origin + "/login.html"
+    });
+
+    // Разлогиниваем — пусть сначала подтвердит почту
+    await signOut(auth);
+
+    msg.textContent = "✅ Проверьте почту. Кликните по ссылке для подтверждения, потом войдите.";
+  } catch (e) {
+    msg.textContent = "Ошибка: " + e.message;
+  }
+};
+
+// ============ ВХОД ============
+document.getElementById("btn-login").onclick = async () => {
+  const email = emailEl.value.trim();
+  const pass  = passEl.value;
+
+  if (!email || !pass) { msg.textContent = "Заполни всё"; return; }
+
+  try {
+    const cred = await signInWithEmailAndPassword(auth, email, pass);
+
+    // Обновляем данные юзера (emailVerified обновляется с сервера)
+    await cred.user.reload();
+
+    if (!cred.user.emailVerified) {
+      msg.textContent = "Подтвердите email. Проверьте почту.";
+      await signOut(auth);
+      return;
+    }
+
+    // Проверим — создан ли профиль (если старый юзер)
+    const snap = await getDoc(doc(db, "users", cred.user.uid));
+    if (!snap.exists()) {
+      await setDoc(doc(db, "users", cred.user.uid), {
+        email: cred.user.email,
+        role: "user",
+        createdAt: Date.now()
+      });
+    }
+
     window.location.href = "index.html";
   } catch (e) {
-    msg.textContent = e.message;
+    msg.textContent = "Ошибка: " + e.message;
   }
 };
