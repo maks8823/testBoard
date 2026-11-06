@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <link rel="icon" type="image/png" href="images/hash.svg">
   <link rel="stylesheet" href="css/style.css">
   <title>Админка</title>
 </head>
@@ -45,8 +46,13 @@
       const check = document.getElementById("access-check");
       const content = document.getElementById("admin-content");
 
-      if (!user || !(await isAdmin(user))) {
-        check.innerHTML = `<p class="error">Нет доступа.</p>`;
+      if (!user) {
+        check.innerHTML = `<p class="error">Войдите в аккаунт. <a href="login.html" style="color:#8ec8f8;">Войти</a></p>`;
+        return;
+      }
+
+      if (!(await isAdmin(user))) {
+        check.innerHTML = `<p class="error">Нет доступа. Вы не админ.</p>`;
         return;
       }
 
@@ -60,10 +66,14 @@
       const title = document.getElementById("news-title").value.trim();
       const text  = document.getElementById("news-text").value.trim();
       const msg   = document.getElementById("news-msg");
-      if (!title || !text) { msg.textContent = "Заполните всё"; return; }
+      if (!title || !text) {
+        msg.textContent = "Заполните все поля";
+        return;
+      }
       try {
         await addDoc(collection(db, "news"), {
-          title, text,
+          title,
+          text,
           createdAt: Date.now(),
           authorUid: auth.currentUser.uid,
           authorEmail: auth.currentUser.email
@@ -78,54 +88,72 @@
 
     async function loadUsers() {
       const list = document.getElementById("users-list");
-      const snap = await getDocs(collection(db, "users"));
-      const rows = [];
-      snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
+      try {
+        const snap = await getDocs(collection(db, "users"));
+        const rows = [];
+        snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
 
-      const iAmSuper = isSuperAdmin(currentUser);
-
-      list.innerHTML = rows.map(u => {
-        const isOwner = u.id === SUPER_ADMIN_UID;
-        const roleLabel = isOwner ? "superadmin" : u.role;
-
-        // Кнопки смены роли — только для тебя (SuperAdmin)
-        let roleBtn = "";
-        if (iAmSuper && !isOwner) {
-          roleBtn = u.role !== "admin"
-            ? `<button data-action="role" data-uid="${u.id}" data-role="admin">Дать админку</button>`
-            : `<button data-action="role" data-uid="${u.id}" data-role="user" class="btn-secondary">Снять админку</button>`;
-        }
-
-        // Кнопка удаления записи — доступна всем админам, но только против обычных юзеров
-        let deleteBtn = "";
-        if (!isOwner && (u.role === "user" || iAmSuper)) {
-          deleteBtn = `<button data-action="delete" data-uid="${u.id}" class="btn-danger">Удалить</button>`;
-        }
-
-        return `
-          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.1);">
-            <span>${u.email} <small style="opacity:.6;">[${roleLabel}]</small></span>
-            <span style="display:flex; gap:6px;">${roleBtn} ${deleteBtn}</span>
-          </div>
-        `;
-      }).join("");
-
-      list.querySelectorAll("button").forEach(btn => {
-        btn.onclick = async () => {
-          const uid = btn.dataset.uid;
-          try {
-            if (btn.dataset.action === "role") {
-              await updateDoc(doc(db, "users", uid), { role: btn.dataset.role });
-            } else if (btn.dataset.action === "delete") {
-              if (!confirm("Удалить запись пользователя?")) return;
-              await deleteDoc(doc(db, "users", uid));
-            }
-            loadUsers();
-          } catch (e) {
-            alert("Ошибка: " + e.message);
-          }
+        // Вес роли для сортировки: superadmin (0) -> admin (1) -> user (2)
+        const getRoleWeight = (u) => {
+          if (u.id === SUPER_ADMIN_UID) return 0;
+          if (u.role === "admin") return 1;
+          return 2;
         };
-      });
+
+        // Сортируем по роли, а при одинаковой роли — по email
+        rows.sort((a, b) => {
+          const diff = getRoleWeight(a) - getRoleWeight(b);
+          if (diff !== 0) return diff;
+          return (a.email || "").localeCompare(b.email || "");
+        });
+
+        const iAmSuper = isSuperAdmin(currentUser);
+
+        list.innerHTML = rows.map(u => {
+          const isOwner = u.id === SUPER_ADMIN_UID;
+          const roleLabel = isOwner ? "superadmin" : (u.role || "user");
+
+          // Кнопки выдачи/снятия админки — видит только SuperAdmin
+          let roleBtn = "";
+          if (iAmSuper && !isOwner) {
+            roleBtn = u.role !== "admin"
+              ? `<button data-action="role" data-uid="${u.id}" data-role="admin">Дать админку</button>`
+              : `<button data-action="role" data-uid="${u.id}" data-role="user" class="btn-secondary">Снять админку</button>`;
+          }
+
+          // Кнопка удаления — админы могут удалять только обычных user, SuperAdmin — кого угодно кроме себя
+          let deleteBtn = "";
+          if (!isOwner && (u.role === "user" || iAmSuper)) {
+            deleteBtn = `<button data-action="delete" data-uid="${u.id}" class="btn-danger">Удалить</button>`;
+          }
+
+          return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.1);">
+              <span>${u.email || "Без email"} <small style="opacity:.6;">[${roleLabel}]</small></span>
+              <span style="display:flex; gap:6px;">${roleBtn} ${deleteBtn}</span>
+            </div>
+          `;
+        }).join("");
+
+        list.querySelectorAll("button").forEach(btn => {
+          btn.onclick = async () => {
+            const uid = btn.dataset.uid;
+            try {
+              if (btn.dataset.action === "role") {
+                await updateDoc(doc(db, "users", uid), { role: btn.dataset.role });
+              } else if (btn.dataset.action === "delete") {
+                if (!confirm("Удалить запись пользователя?")) return;
+                await deleteDoc(doc(db, "users", uid));
+              }
+              loadUsers();
+            } catch (e) {
+              alert("Ошибка: " + e.message);
+            }
+          };
+        });
+      } catch (e) {
+        list.innerHTML = `<p class="error">Ошибка загрузки пользователей: ${e.message}</p>`;
+      }
     }
   </script>
 </body>
