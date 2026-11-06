@@ -35,23 +35,22 @@
     import { auth, db } from "./js/firebase-config.js";
     import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
     import {
-      collection, getDocs, addDoc, doc, updateDoc
+      collection, getDocs, addDoc, doc, updateDoc, deleteDoc
     } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-    import { isAdmin } from "./js/user-role.js";
+    import { isAdmin, isSuperAdmin, SUPER_ADMIN_UID } from "./js/user-role.js";
+
+    let currentUser = null;
 
     onAuthStateChanged(auth, async (user) => {
       const check = document.getElementById("access-check");
       const content = document.getElementById("admin-content");
 
-      if (!user) {
-        check.innerHTML = `<p class="error">Войдите в аккаунт. <a href="login.html">Войти</a></p>`;
-        return;
-      }
-      if (!(await isAdmin(user))) {
-        check.innerHTML = `<p class="error">Нет доступа. Вы не админ.</p>`;
+      if (!user || !(await isAdmin(user))) {
+        check.innerHTML = `<p class="error">Нет доступа.</p>`;
         return;
       }
 
+      currentUser = user;
       check.style.display = "none";
       content.style.display = "block";
       loadUsers();
@@ -66,7 +65,8 @@
         await addDoc(collection(db, "news"), {
           title, text,
           createdAt: Date.now(),
-          authorUid: auth.currentUser.uid
+          authorUid: auth.currentUser.uid,
+          authorEmail: auth.currentUser.email
         });
         msg.textContent = "Опубликовано!";
         document.getElementById("news-title").value = "";
@@ -82,21 +82,44 @@
       const rows = [];
       snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
 
-      list.innerHTML = rows.map(u => `
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.1);">
-          <span>${u.email} <small style="opacity:.6;">[${u.role}]</small></span>
-          <span>
-            ${u.role !== 'admin'
-              ? `<button data-uid="${u.id}" data-role="admin">Сделать админом</button>`
-              : `<button data-uid="${u.id}" data-role="user" class="btn-danger">Снять</button>`}
-          </span>
-        </div>
-      `).join("");
+      const iAmSuper = isSuperAdmin(currentUser);
+
+      list.innerHTML = rows.map(u => {
+        const isOwner = u.id === SUPER_ADMIN_UID;
+        const roleLabel = isOwner ? "superadmin" : u.role;
+
+        // Кнопки смены роли — только для тебя (SuperAdmin)
+        let roleBtn = "";
+        if (iAmSuper && !isOwner) {
+          roleBtn = u.role !== "admin"
+            ? `<button data-action="role" data-uid="${u.id}" data-role="admin">Дать админку</button>`
+            : `<button data-action="role" data-uid="${u.id}" data-role="user" class="btn-secondary">Снять админку</button>`;
+        }
+
+        // Кнопка удаления записи — доступна всем админам, но только против обычных юзеров
+        let deleteBtn = "";
+        if (!isOwner && (u.role === "user" || iAmSuper)) {
+          deleteBtn = `<button data-action="delete" data-uid="${u.id}" class="btn-danger">Удалить</button>`;
+        }
+
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.1);">
+            <span>${u.email} <small style="opacity:.6;">[${roleLabel}]</small></span>
+            <span style="display:flex; gap:6px;">${roleBtn} ${deleteBtn}</span>
+          </div>
+        `;
+      }).join("");
 
       list.querySelectorAll("button").forEach(btn => {
         btn.onclick = async () => {
+          const uid = btn.dataset.uid;
           try {
-            await updateDoc(doc(db, "users", btn.dataset.uid), { role: btn.dataset.role });
+            if (btn.dataset.action === "role") {
+              await updateDoc(doc(db, "users", uid), { role: btn.dataset.role });
+            } else if (btn.dataset.action === "delete") {
+              if (!confirm("Удалить запись пользователя?")) return;
+              await deleteDoc(doc(db, "users", uid));
+            }
             loadUsers();
           } catch (e) {
             alert("Ошибка: " + e.message);
